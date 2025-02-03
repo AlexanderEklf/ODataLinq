@@ -1,4 +1,3 @@
-using System;
 using System.Linq.Expressions;
 using Irony.Parsing;
 
@@ -70,9 +69,9 @@ public static class ExpressionFactory<T>
     {
         return Expression.Property(
             Param,
-            typeof(Person).GetProperty(node.FindTokenAndGetText())
+            typeof(T).GetProperty(node.FindTokenAndGetText())
                 ?? throw new InvalidOperationException(
-                    $"{nameof(Person)} does not contain property {node.FindTokenAndGetText()}"
+                    $"{nameof(T)} does not contain property {node.FindTokenAndGetText()}"
                 )
         );
     }
