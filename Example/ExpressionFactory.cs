@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Linq.Expressions;
 using Irony.Parsing;
 
@@ -39,12 +40,67 @@ public static class ExpressionFactory<T>
             return VisitVariable(node);
         }
 
+        if (node.Term.Name == "logical_expression")
+        {
+            return VisitLogicalExpression(node);
+        }
+
+        if (node.Term.Name == "collection_filter_expression")
+        {
+            return VisitCollectionFilterExpression(node);
+        }
+
         throw new Exception();
+    }
+
+    private static BinaryExpression VisitCollectionFilterExpression(ParseTreeNode node)
+    {
+        var parameter = VisitFieldPath(node.ChildNodes[0]);
+
+        var lamda = node.ChildNodes[1];
+
+        return lamda.Term.Name switch
+        {
+            "/any()" => Expression.NotEqual(
+                Expression.ArrayLength(parameter),
+                Expression.Constant(0)
+            ),
+            _ => throw new UnreachableException(
+                $"{nameof(VisitCollectionFilterExpression)} is not exhaustive, ${lamda.Term.Name}"
+            ),
+        };
+    }
+
+    private static Expression VisitLogicalExpression(ParseTreeNode node)
+    {
+        var lhs = node.ChildNodes[0];
+        var expression = node.ChildNodes[1].FindTokenAndGetText();
+        var rhs = node.ChildNodes[2];
+
+        return expression switch
+        {
+            "or" => Expression.Or(Visit(lhs), Visit(rhs)),
+            "and" => Expression.And(Visit(lhs), Visit(rhs)),
+            _ => throw new UnreachableException($"invalid token ${expression}"),
+        };
     }
 
     private static Expression VisitConstant(ParseTreeNode node)
     {
-        return Expression.Constant(node.FindTokenAndGetText().Replace("'", ""), typeof(string));
+        var literal = node.ChildNodes[0];
+        return literal.Term.Name switch
+        {
+            "string_literal" => Expression.Constant(literal.Token.Value, typeof(string)),
+            "float_literal" => Expression.Constant(
+                literal.Token.Value,
+                literal.Token.Value.GetType()
+            ),
+            "integer_literal" => Expression.Constant(
+                literal.Token.Value,
+                literal.Token.Value.GetType()
+            ),
+            _ => throw new UnreachableException($"{nameof(VisitConstant)} is not exhaustive"),
+        };
     }
 
     private static Expression VisitComparisonExpression(ParseTreeNode node)
@@ -56,6 +112,11 @@ public static class ExpressionFactory<T>
         return op.FindTokenAndGetText() switch
         {
             "eq" => Expression.Equal(Visit(lhs), Visit(rhs)),
+            "ne" => Expression.NotEqual(Visit(lhs), Visit(rhs)),
+            "lt" => Expression.LessThan(Visit(lhs), Visit(rhs)),
+            "gt" => Expression.GreaterThan(Visit(lhs), Visit(rhs)),
+            "le" => Expression.LessThanOrEqual(Visit(lhs), Visit(rhs)),
+            "ge" => Expression.GreaterThanOrEqual(Visit(lhs), Visit(rhs)),
             _ => throw new Exception($"Unrecognized token {op.FindTokenAndGetText()}"),
         };
     }
@@ -66,6 +127,17 @@ public static class ExpressionFactory<T>
     }
 
     private static Expression VisitVariable(ParseTreeNode node)
+    {
+        return Expression.Property(
+            Param,
+            typeof(T).GetProperty(node.FindTokenAndGetText())
+                ?? throw new InvalidOperationException(
+                    $"{nameof(T)} does not contain property {node.FindTokenAndGetText()}"
+                )
+        );
+    }
+
+    private static Expression VisitFieldPath(ParseTreeNode node)
     {
         return Expression.Property(
             Param,
